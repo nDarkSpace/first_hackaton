@@ -7,7 +7,7 @@ const wrap = {
   background: "#0d0d1a",
   color: "#fff",
   fontFamily: "inherit",
-  padding: 24,
+  padding: 16,
 };
 
 const input = {
@@ -109,7 +109,14 @@ export default function AdminPanel() {
         </button>
       </div>
 
-      <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 320px", gap: 20 }}>
+      <div
+        style={{
+          marginTop: 16,
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr)",
+          gap: 20,
+        }}
+      >
         <div>
           <h3 style={{ color: "#00C4FF" }}>Игроки</h3>
           <div style={{ display: "grid", gap: 8 }}>
@@ -151,10 +158,9 @@ function UserRow({ user, partners, onPush }) {
         border: "1px solid #222",
         borderRadius: 8,
         padding: 10,
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr 80px auto",
+        display: "flex",
+        flexDirection: "column",
         gap: 8,
-        alignItems: "center",
       }}
     >
       <div>
@@ -163,30 +169,32 @@ function UserRow({ user, partners, onPush }) {
           {user.recovery_code} · {user.player_id.slice(0, 8)}
         </div>
       </div>
-      <select
-        value={merchant}
-        onChange={(e) => setMerchant(e.target.value)}
-        style={input}
-      >
-        <option value="">— партнёр —</option>
-        {partners.map((p) => (
-          <option key={p.name} value={p.name}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <input
-        type="number"
-        value={amount}
-        onChange={(e) => setAmount(e.target.value)}
-        style={input}
-      />
-      <button
-        style={{ ...btn, background: "#FFD60A" }}
-        onClick={() => merchant && onPush(user.player_id, merchant, amount)}
-      >
-        🔔 Push
-      </button>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <select
+          value={merchant}
+          onChange={(e) => setMerchant(e.target.value)}
+          style={{ ...input, flex: "1 1 160px", minWidth: 0 }}
+        >
+          <option value="">— партнёр —</option>
+          {partners.map((p) => (
+            <option key={p.name} value={p.name}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <input
+          type="number"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+          style={{ ...input, width: 90 }}
+        />
+        <button
+          style={{ ...btn, background: "#FFD60A" }}
+          onClick={() => merchant && onPush(user.player_id, merchant, amount)}
+        >
+          🔔 Push
+        </button>
+      </div>
     </div>
   );
 }

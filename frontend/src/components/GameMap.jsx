@@ -1,6 +1,6 @@
 // filepath: frontend/src/components/GameMap.jsx
 import { useEffect, useMemo, useState } from "react";
-import Map, { Source, Layer, Popup } from "react-map-gl/maplibre";
+import Map, { Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
 import "maplibre-gl/dist/maplibre-gl.css";
 
 const MINSK_CENTER = { longitude: 27.5615, latitude: 53.9045 };
@@ -47,7 +47,7 @@ function pointsToGeoJSON(items, keyExtras = {}) {
   };
 }
 
-export default function GameMap({ hexes, partners, pending, onConsume }) {
+export default function GameMap({ hexes, partners, pending, onConsume, onSelectPartner }) {
   const [popup, setPopup] = useState(null);
   const [pulse, setPulse] = useState(8);
 
@@ -89,16 +89,19 @@ export default function GameMap({ hexes, partners, pending, onConsume }) {
             pendingId: f.properties.pending_id,
           });
         } else if (f.layer.id === "partners-circle") {
+          const name = f.properties.name;
           setPopup({
             lngLat: e.lngLat,
-            name: f.properties.name,
+            name,
             category: f.properties.category,
             cashback: f.properties.cashback,
             pendingId: null,
           });
+          if (onSelectPartner) onSelectPartner(name);
         }
       }}
     >
+      <NavigationControl position="top-right" showCompass={false} />
       <Source id="hexes" type="geojson" data={hexGeoJSON}>
         <Layer
           id="hex-fill"
@@ -167,7 +170,7 @@ export default function GameMap({ hexes, partners, pending, onConsume }) {
           id="pending-circle"
           type="circle"
           paint={{
-            "circle-radius": 7,
+            "circle-radius": 9,
             "circle-color": "#FFD60A",
             "circle-stroke-color": "#0d0d1a",
             "circle-stroke-width": 2,

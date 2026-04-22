@@ -1,4 +1,6 @@
 # filepath: backend/seed_data.py
+import json
+from pathlib import Path
 from math import cos, sin, radians, sqrt
 from sqlalchemy.orm import Session
 from models import Partner
@@ -154,9 +156,52 @@ PARTNERS_DATA = [
 ]
 
 
+def _load_osm_partners():
+    """Читает backend/partners_osm.json если он есть."""
+    p = Path(__file__).resolve().parent / "partners_osm.json"
+    if not p.exists():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(data, list) or not data:
+            return None
+        return data
+    except Exception:
+        return None
+
+
 def seed_partners(session: Session):
-    """Создаёт партнёров. hex_id каждого партнёра вычисляется из его lat/lng,
-    чтобы соответствовать текущей гекс-сетке."""
+    """Создаёт партнёров. Если есть partners_osm.json — берём его (реальные точки
+    из OpenStreetMap). Иначе — встроенный PARTNERS_DATA.
+    hex_id вычисляется из lat/lng."""
+    osm = _load_osm_partners()
+    if osm is not None:
+        for item in osm:
+            name = item.get("name")
+            lat = item.get("lat")
+            lng = item.get("lng")
+            if not name or lat is None or lng is None:
+                continue
+            exists = session.query(Partner).filter(
+                Partner.name == name,
+                Partner.lat == lat,
+                Partner.lng == lng,
+            ).first()
+            if exists:
+                continue
+            hid = hex_id_for_point(lat, lng)
+            session.add(Partner(
+                hex_id=hid,
+                name=name,
+                category=item.get("category", "other"),
+                mcc_code=item.get("mcc_code", "5999"),
+                lat=lat,
+                lng=lng,
+                cashback_percent=float(item.get("cashback_percent", 0.0)),
+            ))
+        session.commit()
+        return
+
     for name, cat, mcc, lat, lng, cb in PARTNERS_DATA:
         exists = session.query(Partner).filter_by(name=name).first()
         if exists:

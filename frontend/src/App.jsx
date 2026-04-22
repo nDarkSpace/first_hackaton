@@ -11,6 +11,7 @@ import { clearStoredPlayer, fetchMe, getStoredPlayer, setStoredPlayer } from "./
 export default function App() {
   const [player, setPlayer] = useState(null);
   const [bootDone, setBootDone] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState(null);
   const isAdminRoute = typeof window !== "undefined" && window.location.pathname.startsWith("/admin");
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export default function App() {
 
   const {
     hexes, partners, pending, stats, achievements, notification,
-    submitTx, submitDeferred, consume,
+    submitDeferred, consume,
   } = useGameState(player?.player_id);
 
   function handleLogout() {
@@ -67,7 +68,13 @@ export default function App() {
       }}
     >
       <div style={{ flex: 1, position: "relative" }}>
-        <GameMap hexes={hexes} partners={partners} pending={pending} onConsume={consume} />
+        <GameMap
+          hexes={hexes}
+          partners={partners}
+          pending={pending}
+          onConsume={consume}
+          onSelectPartner={(name) => setSelectedPartner({ name, at: Date.now() })}
+        />
         <NotificationToast notification={notification} />
       </div>
       <DemoPanel
@@ -75,10 +82,10 @@ export default function App() {
         achievements={achievements}
         partners={partners}
         pendingCount={pending?.length ?? 0}
-        submitTx={submitTx}
         submitDeferred={submitDeferred}
         player={player}
         onLogout={handleLogout}
+        selectedPartnerName={selectedPartner?.name}
       />
     </div>
   );

@@ -7,7 +7,6 @@ import {
   fetchPartners,
   fetchPending,
   fetchProfile,
-  submitTransaction,
 } from "../api/client";
 
 export function useGameState(playerId) {
@@ -42,37 +41,30 @@ export function useGameState(playerId) {
       .catch((e) => console.error("partners failed", e));
   }, [refresh]);
 
-  const submitTx = useCallback(
-    async (merchantName, amount, mcc) => {
-      if (!playerId) return;
-      try {
-        const res = await submitTransaction(playerId, mcc, amount, merchantName);
-        if (res.hex_unlocked) {
-          setHexes((prev) =>
-            prev.map((h) =>
-              h.hex_id === res.hex_unlocked
-                ? { ...h, is_unlocked: true, _justUnlocked: true }
-                : h
-            )
-          );
-        }
-        setNotification({
-          show: true,
-          hexUnlocked: res.hex_unlocked,
-          reward: res.reward,
-          achievements: res.new_achievements || [],
-          message: res.message,
-        });
-        setTimeout(() => setNotification({ show: false }), 4000);
-        setTimeout(() => refresh(), 800);
-      } catch (e) {
-        console.error("submitTx failed", e);
-        setNotification({ show: true, error: "Ошибка сети" });
-        setTimeout(() => setNotification({ show: false }), 2500);
-      }
-    },
-    [playerId, refresh]
-  );
+  useEffect(() => {
+    if (!playerId) return;
+    const id = setInterval(() => {
+      fetchPending(playerId)
+        .then((d) => {
+          const arr = d.pending || [];
+          setPending((prev) => {
+            const prevIds = new Set(prev.map((x) => x.pending_id));
+            const fresh = arr.filter((x) => !prevIds.has(x.pending_id));
+            if (fresh.length > 0) {
+              const f = fresh[0];
+              setNotification({
+                show: true,
+                bank: { merchant: f.partner_name, amount: f.amount, mcc: f.category },
+              });
+              setTimeout(() => setNotification({ show: false }), 4500);
+            }
+            return arr;
+          });
+        })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, [playerId]);
 
   const submitDeferred = useCallback(
     async (merchantName, amount, mcc) => {
@@ -81,9 +73,9 @@ export function useGameState(playerId) {
         await createPending(playerId, merchantName, amount, mcc);
         setNotification({
           show: true,
-          message: "Транзакция принята банком. Открой игру позже — тебя будет ждать награда 🔔",
+          bank: { merchant: merchantName, amount, mcc },
         });
-        setTimeout(() => setNotification({ show: false }), 3500);
+        setTimeout(() => setNotification({ show: false }), 4500);
         setTimeout(() => refresh(), 400);
       } catch (e) {
         console.error("submitDeferred failed", e);
@@ -124,5 +116,5 @@ export function useGameState(playerId) {
     [refresh]
   );
 
-  return { hexes, partners, pending, stats, achievements, notification, submitTx, submitDeferred, consume };
+  return { hexes, partners, pending, stats, achievements, notification, submitDeferred, consume };
 }
