@@ -16,7 +16,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 class Partner(Base):
     __tablename__ = "partners"
     id = Column(Integer, primary_key=True, autoincrement=True)
-    hex_id = Column(String, unique=True, nullable=False, index=True)
+    hex_id = Column(String, nullable=False, index=True)
     name = Column(String, nullable=False)
     category = Column(String, nullable=False)
     mcc_code = Column(String, nullable=False)
@@ -48,6 +48,25 @@ class Quest(Base):
     current_value = Column(Integer, nullable=False, default=0)
     mcc_filter = Column(String, nullable=True)
     is_completed = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class PendingTransaction(Base):
+    __tablename__ = "pending_transactions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(String, nullable=False, index=True)
+    partner_name = Column(String, nullable=False)
+    amount = Column(Float, nullable=False, default=0.0)
+    mcc_code = Column(String, nullable=False, default="")
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    consumed_at = Column(DateTime, nullable=True)
+
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(String, primary_key=True)  # UUID, он же player_id
+    name = Column(String, nullable=False)
+    recovery_code = Column(String, nullable=False, unique=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 

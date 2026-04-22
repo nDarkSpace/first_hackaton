@@ -6,12 +6,9 @@ from sqlalchemy.orm import Session
 
 from models import SessionLocal, Partner, PlayerProgress, Achievement
 from seed_data import hex_grid_minsk
-from quest_engine import QuestEngine
 from achievement_engine import AchievementEngine
 
 router = APIRouter(prefix="/api")
-
-DEMO_PLAYER = "demo_player_001"
 
 
 def get_db():
@@ -23,7 +20,7 @@ def get_db():
 
 
 class TransactionIn(BaseModel):
-    player_id: str = Field(default=DEMO_PLAYER)
+    player_id: str
     merchant_name: str
     mcc_code: str
     amount: float
@@ -31,43 +28,28 @@ class TransactionIn(BaseModel):
     timestamp: str | None = None
 
 
-@router.get("/hexes")
-def get_hexes(db: Session = Depends(get_db)):
+@router.get("/hexes/{player_id}")
+def get_hexes(player_id: str, db: Session = Depends(get_db)):
     grid = hex_grid_minsk()
     unlocked_ids = {
         pp.hex_id for pp in
-        db.query(PlayerProgress).filter_by(player_id=DEMO_PLAYER).all()
+        db.query(PlayerProgress).filter_by(player_id=player_id).all()
     }
-    partners = {p.hex_id: p for p in db.query(Partner).all()}
-
-    next_hex = QuestEngine.get_next_unlocked_hex(db, DEMO_PLAYER)
-    active_quest = None
-    if next_hex:
-        active_quest = QuestEngine.get_or_create_quest(db, DEMO_PLAYER, next_hex)
+    partners_by_hex = {}
+    for p in db.query(Partner).all():
+        partners_by_hex.setdefault(p.hex_id, []).append(p)
 
     hexes_out = []
     for h in grid:
         hid = h["hex_id"]
         is_unlocked = hid in unlocked_ids
-        partner_obj = partners.get(hid)
         partner_data = None
-        if partner_obj and is_unlocked:
+        if is_unlocked and partners_by_hex.get(hid):
+            p = partners_by_hex[hid][0]
             partner_data = {
-                "name": partner_obj.name,
-                "category": partner_obj.category,
-                "cashback_percent": partner_obj.cashback_percent,
-            }
-
-        quest_data = None
-        if active_quest and active_quest.hex_id == hid:
-            percent = int(
-                min(100, (active_quest.current_value / max(1, active_quest.target_value)) * 100)
-            )
-            quest_data = {
-                "description": active_quest.description,
-                "current": active_quest.current_value,
-                "target": active_quest.target_value,
-                "percent": percent,
+                "name": p.name,
+                "category": p.category,
+                "cashback_percent": p.cashback_percent,
             }
 
         hexes_out.append({
@@ -77,10 +59,10 @@ def get_hexes(db: Session = Depends(get_db)):
             "vertices": h["vertices"],
             "is_unlocked": is_unlocked,
             "partner": partner_data,
-            "active_quest": quest_data,
+            "active_quest": None,
         })
 
-    ach_count = db.query(Achievement).filter_by(player_id=DEMO_PLAYER).count()
+    ach_count = db.query(Achievement).filter_by(player_id=player_id).count()
 
     return {
         "hexes": hexes_out,
@@ -94,51 +76,36 @@ def get_hexes(db: Session = Depends(get_db)):
 
 @router.post("/transaction")
 def post_transaction(tx: TransactionIn, db: Session = Depends(get_db)):
-    player_id = tx.player_id or DEMO_PLAYER
+    player_id = tx.player_id
+    if not player_id:
+        return {"hex_unlocked": None, "reward": None, "new_achievements": [], "message": "Нет player_id"}
 
-    target_hex = QuestEngine.get_next_unlocked_hex(db, player_id)
-    if not target_hex:
+    partner = db.query(Partner).filter_by(name=tx.merchant_name).first()
+    if not partner:
         return {
-            "quest_updated": False,
-            "quest_completed": False,
             "hex_unlocked": None,
-            "progress": None,
             "reward": None,
             "new_achievements": [],
-            "next_quest": None,
+            "message": f"Партнёр '{tx.merchant_name}' не найден",
         }
 
-    quest = QuestEngine.get_or_create_quest(db, player_id, target_hex)
-    tx_data = {"mcc_code": tx.mcc_code, "amount": tx.amount}
-    updated, completed = QuestEngine.check_and_update(db, quest, tx_data)
+    target_hex = partner.hex_id
+    already = db.query(PlayerProgress).filter_by(
+        player_id=player_id, hex_id=target_hex
+    ).first()
 
     hex_unlocked = None
-    reward = None
     new_achievements = []
-    next_quest_data = None
 
-    if completed:
-        exists = db.query(PlayerProgress).filter_by(
-            player_id=player_id, hex_id=target_hex
-        ).first()
-        if not exists:
-            db.add(PlayerProgress(
-                player_id=player_id,
-                hex_id=target_hex,
-                unlocked_at=datetime.utcnow(),
-                quest_type=quest.type,
-            ))
-            db.commit()
-
+    if not already:
+        db.add(PlayerProgress(
+            player_id=player_id,
+            hex_id=target_hex,
+            unlocked_at=datetime.utcnow(),
+            quest_type="purchase",
+        ))
+        db.commit()
         hex_unlocked = target_hex
-
-        partner = db.query(Partner).filter_by(hex_id=target_hex).first()
-        if partner:
-            reward = {
-                "type": "cashback",
-                "value": partner.cashback_percent,
-                "label": f"{partner.cashback_percent}% кэшбэк в {partner.name}",
-            }
 
         ts = datetime.utcnow()
         if tx.timestamp:
@@ -155,33 +122,40 @@ def post_transaction(tx: TransactionIn, db: Session = Depends(get_db)):
         }
         new_achievements = AchievementEngine.check_and_award(db, player_id, event)
 
-        next_hex_id = QuestEngine.get_next_unlocked_hex(db, player_id)
-        if next_hex_id:
-            nq = QuestEngine.get_or_create_quest(db, player_id, next_hex_id)
-            next_quest_data = {
-                "hex_id": next_hex_id,
-                "description": nq.description,
-            }
-
-    db.refresh(quest)
-    percent = int(
-        min(100, (quest.current_value / max(1, quest.target_value)) * 100)
-    )
-    progress = {
-        "current": quest.current_value,
-        "target": quest.target_value,
-        "percent": percent,
-        "description": quest.description,
+    reward = {
+        "type": "cashback",
+        "value": partner.cashback_percent,
+        "label": f"{partner.cashback_percent}% кэшбэк в {partner.name}",
     }
 
     return {
-        "quest_updated": updated,
-        "quest_completed": completed,
         "hex_unlocked": hex_unlocked,
-        "progress": progress,
         "reward": reward,
         "new_achievements": new_achievements,
-        "next_quest": next_quest_data,
+        "partner": {
+            "name": partner.name,
+            "category": partner.category,
+            "hex_id": partner.hex_id,
+        },
+    }
+
+
+@router.get("/partners")
+def get_partners(db: Session = Depends(get_db)):
+    partners = db.query(Partner).order_by(Partner.name).all()
+    return {
+        "partners": [
+            {
+                "name": p.name,
+                "category": p.category,
+                "mcc_code": p.mcc_code,
+                "lat": p.lat,
+                "lng": p.lng,
+                "cashback_percent": p.cashback_percent,
+                "hex_id": p.hex_id,
+            }
+            for p in partners
+        ]
     }
 
 
@@ -201,22 +175,13 @@ def get_profile(player_id: str, db: Session = Depends(get_db)):
         for a in achs
     ]
 
-    next_hex = QuestEngine.get_next_unlocked_hex(db, player_id)
-    active_quest = None
-    if next_hex:
-        q = QuestEngine.get_or_create_quest(db, player_id, next_hex)
-        active_quest = {
-            "hex_id": q.hex_id,
-            "description": q.description,
-            "current": q.current_value,
-            "target": q.target_value,
-        }
+    total = len(hex_grid_minsk())
 
     return {
         "player_id": player_id,
         "unlocked_hexes": unlocked_ids,
         "unlocked_count": len(unlocked_ids),
-        "total_hexes": 37,
+        "total_hexes": total,
         "achievements": ach_list,
-        "active_quest": active_quest,
+        "active_quest": None,
     }

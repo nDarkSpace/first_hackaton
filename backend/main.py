@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from models import init_db, SessionLocal
 from seed_data import seed_partners
 from routers.game import router as game_router
+from routers.auth import router as auth_router
+from routers.pending import router as pending_router
 
 app = FastAPI(title="Fog of War — MTBank")
 
@@ -20,6 +22,8 @@ app.add_middleware(
 )
 
 app.include_router(game_router)
+app.include_router(auth_router)
+app.include_router(pending_router)
 
 
 @app.on_event("startup")
