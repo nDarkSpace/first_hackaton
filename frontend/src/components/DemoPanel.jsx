@@ -44,8 +44,27 @@ export default function DemoPanel({
   const [partnerId, setPartnerId] = useState("");
   const [amount, setAmount] = useState("25");
   const [rewardsOpen, setRewardsOpen] = useState(false);
+  const [redeemedFlash, setRedeemedFlash] = useState(null);
   const amountRef = useRef(null);
   const activeRewards = rewards?.active ?? [];
+
+  function handleRedeem(r) {
+    if (!onRedeem) return;
+    onRedeem(r.id);
+    const labelByType = {
+      cashback_boost: `+${r.value}% кэшбэк${r.scope ? " · " + r.scope : ""} активен`,
+      discount: `Скидка ${r.value}% активна`,
+      bonus_points: `+${r.value} бонусов начислено`,
+      free_unlock: "Бесплатное открытие активно",
+    };
+    setRedeemedFlash({
+      id: r.id,
+      text: labelByType[r.reward_type] || "Промокод активирован",
+    });
+    setTimeout(() => {
+      setRedeemedFlash((cur) => (cur && cur.id === r.id ? null : cur));
+    }, 3000);
+  }
 
   useEffect(() => {
     if (selectedPartner?.id != null && String(selectedPartner.id) !== partnerId) {
@@ -109,7 +128,7 @@ export default function DemoPanel({
               🔔 {pendingCount}
             </span>
           )}
-          {activeRewards.length > 0 && (
+          {(activeRewards.length > 0 || rewardsOpen) && (
             <button
               onClick={() => setRewardsOpen((v) => !v)}
               style={{
@@ -261,21 +280,34 @@ export default function DemoPanel({
                     осталось {expDays} дн.
                   </div>
                 </div>
-                <button
-                  onClick={() => onRedeem && onRedeem(r.id)}
-                  style={{
-                    background: "transparent",
-                    color: "#7B61FF",
-                    border: "1px solid #7B61FF",
-                    borderRadius: 6,
-                    padding: "4px 10px",
-                    fontSize: 12,
-                    cursor: "pointer",
-                    fontFamily: "inherit",
-                  }}
-                >
-                  использовать
-                </button>
+                {redeemedFlash && redeemedFlash.id === r.id ? (
+                  <span
+                    style={{
+                      color: "#7CFFB2",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    ✓ {redeemedFlash.text}
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => handleRedeem(r)}
+                    style={{
+                      background: "transparent",
+                      color: "#7B61FF",
+                      border: "1px solid #7B61FF",
+                      borderRadius: 6,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      fontFamily: "inherit",
+                    }}
+                  >
+                    использовать
+                  </button>
+                )}
               </div>
             );
           })}
