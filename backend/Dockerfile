@@ -1,5 +1,5 @@
 # Stage 1: builder
-FROM python:3 AS builder
+FROM python:3.11.15-trixie AS builder
 
 WORKDIR /app
 
@@ -12,7 +12,7 @@ RUN pip install --user --no-cache-dir -r requirements.txt
 
 
 # Stage 2: runtime
-FROM python:3
+FROM python:3.11.15-trixie
 
 WORKDIR /app
 
