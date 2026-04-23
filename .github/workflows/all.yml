@@ -7,40 +7,63 @@ on:
     branches: [ "main" ]
 
 jobs:
-
-  BuildPush:
-
+  # 1. Build and Push Backend
+  build-backend:
+    name: Build & Push Backend
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Log in to DockerHub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-        
-    - name: Build the backend Docker image
-      run: docker build . --file backend/Dockerfile -t titorka/fow-backend --tag fow-bakend:$(date +%s)
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and Push Backend
+        run: |
+          docker build . --file backend/Dockerfile \
+            --tag titorka/fow-backend:latest \
+            --tag titorka/fow-backend:${{ github.sha }}
+          docker push titorka/fow-backend --all-tags
 
-    - name: Build the backend Docker image
-      run: docker build . --file frontend/Dockerfile -t titorka/fow-frontend --tag fow-frontend:$(date +%s)
+  # 2. Build and Push Frontend
+  build-frontend:
+    name: Build & Push Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
-    - name: Push the fronend Docer image
-      run: docker push titorka/fow-frontend
+      - name: Log in to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          
+      - name: Build and Push Frontend
+        run: |
+          docker build . --file frontend/Dockerfile \
+            --tag titorka/fow-frontend:latest \
+            --tag titorka/fow-frontend:${{ github.sha }}
+          docker push titorka/fow-frontend --all-tags
 
-    - name: Push the backend Docer image
-      run: docker push titorka/fow-backend
-
-    - name: SSH into server and deploy
-      uses: appleboy/ssh-action@v1.0.3
-      with:
-        host: ${{ secrets.SERVER_HOST }}
-        username: ${{ secrets.SERVER_USER }}
-        key: ${{ secrets.SSH_PRIVATE_KEY }}
-        script: |
-          cd /path/to/app
-          git pull
-          docker compose down
-          docker compose up -d
+  # 3. SSH and Deploy (Waits for Backend and Frontend to finish)
+  deploy:
+    name: Deploy to Server
+    needs: [build-backend, build-frontend]
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH into server and deploy
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            cd /
+            git pull
+            docker compose pull
+            docker compose down
+            docker compose up -d --remove-orphans
