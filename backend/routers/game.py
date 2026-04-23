@@ -1,14 +1,16 @@
 # filepath: backend/routers/game.py
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from models import SessionLocal, Partner, PlayerProgress, Achievement
+from models import SessionLocal, Partner, PlayerProgress, Achievement, Reward
 from seed_data import hex_grid_minsk
 from achievement_engine import AchievementEngine
 
 router = APIRouter(prefix="/api")
+
+HEX_TTL = timedelta(days=7)
 
 
 def get_db():
@@ -26,14 +28,19 @@ class TransactionIn(BaseModel):
     amount: float
     currency: str = "BYN"
     timestamp: str | None = None
+    partner_id: int | None = None
 
 
 @router.get("/hexes/{player_id}")
 def get_hexes(player_id: str, db: Session = Depends(get_db)):
     grid = hex_grid_minsk()
+    cutoff = datetime.utcnow() - HEX_TTL
     unlocked_ids = {
         pp.hex_id for pp in
-        db.query(PlayerProgress).filter_by(player_id=player_id).all()
+        db.query(PlayerProgress)
+        .filter(PlayerProgress.player_id == player_id)
+        .filter(PlayerProgress.unlocked_at >= cutoff)
+        .all()
     }
     partners_by_hex = {}
     for p in db.query(Partner).all():
@@ -80,7 +87,11 @@ def post_transaction(tx: TransactionIn, db: Session = Depends(get_db)):
     if not player_id:
         return {"hex_unlocked": None, "reward": None, "new_achievements": [], "message": "Нет player_id"}
 
-    partner = db.query(Partner).filter_by(name=tx.merchant_name).first()
+    partner = None
+    if tx.partner_id is not None:
+        partner = db.query(Partner).filter_by(id=tx.partner_id).first()
+    if partner is None:
+        partner = db.query(Partner).filter_by(name=tx.merchant_name).first()
     if not partner:
         return {
             "hex_unlocked": None,
@@ -90,20 +101,35 @@ def post_transaction(tx: TransactionIn, db: Session = Depends(get_db)):
         }
 
     target_hex = partner.hex_id
-    already = db.query(PlayerProgress).filter_by(
-        player_id=player_id, hex_id=target_hex
-    ).first()
+    cutoff = datetime.utcnow() - HEX_TTL
+    active = (
+        db.query(PlayerProgress)
+        .filter(PlayerProgress.player_id == player_id)
+        .filter(PlayerProgress.hex_id == target_hex)
+        .filter(PlayerProgress.unlocked_at >= cutoff)
+        .first()
+    )
 
     hex_unlocked = None
     new_achievements = []
 
-    if not already:
-        db.add(PlayerProgress(
-            player_id=player_id,
-            hex_id=target_hex,
-            unlocked_at=datetime.utcnow(),
-            quest_type="purchase",
-        ))
+    if not active:
+        now = datetime.utcnow()
+        stale = db.query(PlayerProgress).filter_by(
+            player_id=player_id, hex_id=target_hex
+        ).first()
+        is_rescue = False
+        if stale:
+            stale.unlocked_at = now
+            stale.quest_type = "rescue"
+            is_rescue = True
+        else:
+            db.add(PlayerProgress(
+                player_id=player_id,
+                hex_id=target_hex,
+                unlocked_at=now,
+                quest_type="purchase",
+            ))
         db.commit()
         hex_unlocked = target_hex
 
@@ -119,6 +145,7 @@ def post_transaction(tx: TransactionIn, db: Session = Depends(get_db)):
             "hex_id": target_hex,
             "timestamp": ts,
             "mcc": tx.mcc_code,
+            "is_rescue": is_rescue,
         }
         new_achievements = AchievementEngine.check_and_award(db, player_id, event)
 
@@ -146,6 +173,7 @@ def get_partners(db: Session = Depends(get_db)):
     return {
         "partners": [
             {
+                "id": p.id,
                 "name": p.name,
                 "category": p.category,
                 "mcc_code": p.mcc_code,
@@ -161,7 +189,13 @@ def get_partners(db: Session = Depends(get_db)):
 
 @router.get("/player/{player_id}/profile")
 def get_profile(player_id: str, db: Session = Depends(get_db)):
-    progress = db.query(PlayerProgress).filter_by(player_id=player_id).all()
+    cutoff = datetime.utcnow() - HEX_TTL
+    progress = (
+        db.query(PlayerProgress)
+        .filter(PlayerProgress.player_id == player_id)
+        .filter(PlayerProgress.unlocked_at >= cutoff)
+        .all()
+    )
     unlocked_ids = [p.hex_id for p in progress]
 
     achs = db.query(Achievement).filter_by(player_id=player_id).all()
@@ -185,3 +219,51 @@ def get_profile(player_id: str, db: Session = Depends(get_db)):
         "achievements": ach_list,
         "active_quest": None,
     }
+
+
+@router.get("/rewards/{player_id}")
+def list_rewards(player_id: str, db: Session = Depends(get_db)):
+    """Возвращает активные (не использованные и не просроченные) промокоды игрока."""
+    now = datetime.utcnow()
+    rows = (
+        db.query(Reward)
+        .filter(Reward.player_id == player_id)
+        .order_by(Reward.created_at.desc())
+        .all()
+    )
+    active, used, expired = [], [], []
+    for r in rows:
+        item = {
+            "id": r.id,
+            "code": r.code,
+            "title": r.title,
+            "description": r.description,
+            "reward_type": r.reward_type,
+            "value": r.value,
+            "scope": r.scope,
+            "source_code": r.source_code,
+            "created_at": r.created_at.isoformat(),
+            "expires_at": r.expires_at.isoformat(),
+            "used_at": r.used_at.isoformat() if r.used_at else None,
+        }
+        if r.used_at is not None:
+            used.append(item)
+        elif r.expires_at < now:
+            expired.append(item)
+        else:
+            active.append(item)
+    return {"active": active, "used": used, "expired": expired}
+
+
+@router.post("/rewards/{reward_id}/use")
+def use_reward(reward_id: int, db: Session = Depends(get_db)):
+    r = db.query(Reward).filter_by(id=reward_id).first()
+    if not r:
+        return {"ok": False, "error": "not_found"}
+    if r.used_at is not None:
+        return {"ok": False, "error": "already_used"}
+    if r.expires_at < datetime.utcnow():
+        return {"ok": False, "error": "expired"}
+    r.used_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True, "used_at": r.used_at.isoformat()}

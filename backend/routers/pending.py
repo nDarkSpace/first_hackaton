@@ -1,6 +1,6 @@
 # filepath: backend/routers/pending.py
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
@@ -11,6 +11,19 @@ from achievement_engine import AchievementEngine
 router = APIRouter(prefix="/api")
 
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "demo-admin-token")
+
+HEX_TTL = timedelta(days=7)
+
+
+def _active_unlock(db: Session, player_id: str, hex_id: str) -> PlayerProgress | None:
+    cutoff = datetime.utcnow() - HEX_TTL
+    return (
+        db.query(PlayerProgress)
+        .filter(PlayerProgress.player_id == player_id)
+        .filter(PlayerProgress.hex_id == hex_id)
+        .filter(PlayerProgress.unlocked_at >= cutoff)
+        .first()
+    )
 
 
 def get_db():
@@ -26,24 +39,29 @@ class PendingIn(BaseModel):
     merchant_name: str
     amount: float = 0.0
     mcc_code: str = ""
+    partner_id: int | None = None
 
 
 @router.post("/pending")
 def create_pending(body: PendingIn, db: Session = Depends(get_db)):
-    """Создать отложенную транзакцию. Гекс не открывается до consume."""
-    partner = db.query(Partner).filter_by(name=body.merchant_name).first()
+    """Создать отложенную транзакцию. Гекс не открывается до consume.
+
+    Если передан partner_id — берём конкретную точку (важно когда у партнёра
+    с одним именем несколько локаций). Иначе fallback по имени."""
+    partner = None
+    if body.partner_id is not None:
+        partner = db.query(Partner).filter_by(id=body.partner_id).first()
+    if partner is None:
+        partner = db.query(Partner).filter_by(name=body.merchant_name).first()
     if not partner:
         raise HTTPException(status_code=404, detail=f"Партнёр '{body.merchant_name}' не найден")
 
-    already_unlocked = db.query(PlayerProgress).filter_by(
-        player_id=body.player_id, hex_id=partner.hex_id
-    ).first()
-    if already_unlocked:
+    if _active_unlock(db, body.player_id, partner.hex_id):
         return {"created": False, "reason": "already_unlocked"}
 
     existing = db.query(PendingTransaction).filter_by(
         player_id=body.player_id,
-        partner_name=partner.name,
+        partner_id=partner.id,
         consumed_at=None,
     ).first()
     if existing:
@@ -51,6 +69,7 @@ def create_pending(body: PendingIn, db: Session = Depends(get_db)):
 
     pt = PendingTransaction(
         player_id=body.player_id,
+        partner_id=partner.id,
         partner_name=partner.name,
         amount=body.amount,
         mcc_code=body.mcc_code or partner.mcc_code,
@@ -67,18 +86,19 @@ def list_pending(player_id: str, db: Session = Depends(get_db)):
         player_id=player_id, consumed_at=None
     ).order_by(PendingTransaction.created_at.desc()).all()
 
-    names = {i.partner_name for i in items}
-    partners = {
-        p.name: p for p in db.query(Partner).filter(Partner.name.in_(names)).all()
-    }
+    pids = {i.partner_id for i in items if i.partner_id is not None}
+    names = {i.partner_name for i in items if i.partner_id is None}
+    by_id = {p.id: p for p in db.query(Partner).filter(Partner.id.in_(pids)).all()} if pids else {}
+    by_name = {p.name: p for p in db.query(Partner).filter(Partner.name.in_(names)).all()} if names else {}
 
     out = []
     for i in items:
-        p = partners.get(i.partner_name)
+        p = by_id.get(i.partner_id) if i.partner_id is not None else by_name.get(i.partner_name)
         if not p:
             continue
         out.append({
             "pending_id": i.id,
+            "partner_id": p.id,
             "partner_name": p.name,
             "category": p.category,
             "cashback_percent": p.cashback_percent,
@@ -99,34 +119,61 @@ def consume_pending(pending_id: int, db: Session = Depends(get_db)):
     if pt.consumed_at is not None:
         raise HTTPException(status_code=400, detail="Уже использовано")
 
-    partner = db.query(Partner).filter_by(name=pt.partner_name).first()
+    partner = None
+    if pt.partner_id is not None:
+        partner = db.query(Partner).filter_by(id=pt.partner_id).first()
+    if partner is None:
+        partner = db.query(Partner).filter_by(name=pt.partner_name).first()
     if not partner:
         raise HTTPException(status_code=404, detail="Партнёр удалён")
 
     target_hex = partner.hex_id
     hex_unlocked = None
     new_achievements = []
+    now = datetime.utcnow()
 
-    already = db.query(PlayerProgress).filter_by(
-        player_id=pt.player_id, hex_id=target_hex
-    ).first()
-    if not already:
-        db.add(PlayerProgress(
-            player_id=pt.player_id,
-            hex_id=target_hex,
-            unlocked_at=datetime.utcnow(),
-            quest_type="pending_purchase",
-        ))
+    active = _active_unlock(db, pt.player_id, target_hex)
+    is_rescue = False
+    if not active:
+        stale = db.query(PlayerProgress).filter_by(
+            player_id=pt.player_id, hex_id=target_hex
+        ).first()
+        if stale:
+            # Если запись была — это re-unlock протухшего гекса (rescue)
+            stale.unlocked_at = now
+            stale.quest_type = "rescue"
+            is_rescue = True
+        else:
+            db.add(PlayerProgress(
+                player_id=pt.player_id,
+                hex_id=target_hex,
+                unlocked_at=now,
+                quest_type="pending_purchase",
+            ))
         hex_unlocked = target_hex
+
+    pt.consumed_at = now
+    db.flush()
+
+    # 1) ивент про открытие (если открыли)
+    if hex_unlocked:
         event = {
             "type": "hex_unlocked",
             "hex_id": target_hex,
-            "timestamp": datetime.utcnow(),
+            "timestamp": now,
             "mcc": pt.mcc_code,
+            "is_rescue": is_rescue,
         }
-        new_achievements = AchievementEngine.check_and_award(db, pt.player_id, event)
+        new_achievements += AchievementEngine.check_and_award(db, pt.player_id, event)
 
-    pt.consumed_at = datetime.utcnow()
+    # 2) ивент про сумму транзакции (всегда — для big_tx / thrifty)
+    tx_event = {
+        "type": "transaction_consumed",
+        "amount": pt.amount,
+        "mcc": pt.mcc_code,
+        "timestamp": now,
+    }
+    new_achievements += AchievementEngine.check_and_award(db, pt.player_id, tx_event)
     db.commit()
 
     return {
@@ -151,6 +198,7 @@ class AdminPushIn(BaseModel):
     player_id: str
     merchant_name: str
     amount: float = 0.0
+    partner_id: int | None = None
 
 
 def _check_admin(token: str | None):
@@ -187,19 +235,20 @@ def admin_push(
     if not user:
         raise HTTPException(status_code=404, detail="Игрок не найден")
 
-    partner = db.query(Partner).filter_by(name=body.merchant_name).first()
+    partner = None
+    if body.partner_id is not None:
+        partner = db.query(Partner).filter_by(id=body.partner_id).first()
+    if partner is None:
+        partner = db.query(Partner).filter_by(name=body.merchant_name).first()
     if not partner:
         raise HTTPException(status_code=404, detail="Партнёр не найден")
 
-    already_unlocked = db.query(PlayerProgress).filter_by(
-        player_id=body.player_id, hex_id=partner.hex_id
-    ).first()
-    if already_unlocked:
+    if _active_unlock(db, body.player_id, partner.hex_id):
         return {"created": False, "reason": "already_unlocked"}
 
     existing = db.query(PendingTransaction).filter_by(
         player_id=body.player_id,
-        partner_name=partner.name,
+        partner_id=partner.id,
         consumed_at=None,
     ).first()
     if existing:
@@ -207,6 +256,7 @@ def admin_push(
 
     pt = PendingTransaction(
         player_id=body.player_id,
+        partner_id=partner.id,
         partner_name=partner.name,
         amount=body.amount,
         mcc_code=partner.mcc_code,

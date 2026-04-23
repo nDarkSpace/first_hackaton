@@ -1,7 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Read(//d/work/python/**)"
+      "Read(//d/work/python/**)",
+      "Bash(venv/Scripts/python.exe -c ' *)",
+      "Bash(venv/Scripts/python.exe scripts/fetch_partners_osm.py)",
+      "Bash(PYTHONIOENCODING=utf-8 venv/Scripts/python.exe scripts/fetch_partners_osm.py)",
+      "Bash(PYTHONIOENCODING=utf-8 venv/Scripts/python.exe scripts/fill_empty_hexes.py)",
+      "Bash(PYTHONIOENCODING=utf-8 venv/Scripts/python.exe -m uvicorn main:app --port 8765 --log-level warning)",
+      "Bash(curl -s http://127.0.0.1:8765/)",
+      "Bash(curl -s http://127.0.0.1:8765/api/hexes/demo_player_001)",
+      "Bash(python -c ' *)",
+      "Bash(curl -s http://127.0.0.1:8765/api/partners)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json' -d '{\"player_id\":\"demo_player_001\",\"merchant_name\":\"21 век\",\"mcc_code\":\"5999\",\"amount\":100}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json; charset=utf-8' --data-binary '{\"player_id\":\"demo_player_001\",\"merchant_name\":\"Zara\",\"mcc_code\":\"5651\",\"amount\":100}')",
+      "Bash(tasklist)",
+      "Bash(taskkill //F //PID 11592 //PID 17684)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json; charset=utf-8' --data-binary '{\"player_id\":\"test_player_xyz\",\"merchant_name\":\"Wrong Name Just Testing\",\"mcc_code\":\"5411\",\"amount\":100,\"partner_id\":4}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json; charset=utf-8' --data-binary '{\"player_id\":\"test_player_xyz\",\"merchant_name\":\"Wrong Name Just Testing\",\"mcc_code\":\"5411\",\"amount\":100,\"partner_id\":7}')",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/pending -H 'Content-Type: application/json; charset=utf-8' --data-binary '{\"player_id\":\"test_pending_xyz\",\"merchant_name\":\"X\",\"mcc_code\":\"5411\",\"amount\":50,\"partner_id\":7}')",
+      "Bash(curl -s http://127.0.0.1:8765/api/pending/test_pending_xyz)",
+      "Bash(taskkill //F //PID 16516 //PID 10464)",
+      "Bash(rm -f d:/work/python/Final_try/backend/game.db)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/pending -H 'Content-Type: application/json' --data-binary '{\"player_id\":\"smoke_pending_player\",\"merchant_name\":\"x\",\"mcc_code\":\"5999\",\"amount\":20,\"partner_id\":177}')",
+      "Bash(curl -s http://127.0.0.1:8765/api/pending/smoke_pending_player)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json' --data-binary '{\"player_id\":\"smoke_geo_player\",\"merchant_name\":\"x\",\"mcc_code\":\"5999\",\"amount\":20,\"partner_id\":__TRACKED_VAR__}' done echo 'open 7 hexes done; checking achievements:' curl -s http://127.0.0.1:8765/api/rewards/smoke_geo_player)",
+      "Bash(curl -s -X POST http://127.0.0.1:8765/api/transaction -H 'Content-Type: application/json' --data-binary '{\"player_id\":\"smoke_line_player\",\"merchant_name\":\"x\",\"mcc_code\":\"5999\",\"amount\":20,\"partner_id\":__TRACKED_VAR__}' done curl -s http://127.0.0.1:8765/api/rewards/smoke_line_player)"
     ],
     "additionalDirectories": [
       "d:\\work\\python\\Final_try\\backend"

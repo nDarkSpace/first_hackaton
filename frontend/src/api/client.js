@@ -49,7 +49,7 @@ export async function fetchPartners() {
   return res.data;
 }
 
-export async function submitTransaction(playerId, mcc, amount, merchantName) {
+export async function submitTransaction(playerId, mcc, amount, merchantName, partnerId) {
   const res = await api.post("/api/transaction", {
     player_id: playerId,
     merchant_name: merchantName,
@@ -57,6 +57,7 @@ export async function submitTransaction(playerId, mcc, amount, merchantName) {
     amount: Number(amount),
     currency: "BYN",
     timestamp: new Date().toISOString(),
+    partner_id: partnerId ?? null,
   });
   return res.data;
 }
@@ -66,12 +67,13 @@ export async function fetchPending(playerId) {
   return res.data;
 }
 
-export async function createPending(playerId, merchantName, amount, mcc) {
+export async function createPending(playerId, merchantName, amount, mcc, partnerId) {
   const res = await api.post("/api/pending", {
     player_id: playerId,
     merchant_name: merchantName,
     amount: Number(amount),
     mcc_code: mcc,
+    partner_id: partnerId ?? null,
   });
   return res.data;
 }
@@ -86,10 +88,15 @@ export async function adminListUsers(token) {
   return res.data;
 }
 
-export async function adminPush(token, playerId, merchantName, amount) {
+export async function adminPush(token, playerId, merchantName, amount, partnerId) {
   const res = await api.post(
     "/api/admin/push",
-    { player_id: playerId, merchant_name: merchantName, amount: Number(amount) },
+    {
+      player_id: playerId,
+      merchant_name: merchantName,
+      amount: Number(amount),
+      partner_id: partnerId ?? null,
+    },
     { headers: { "X-Admin-Token": token } }
   );
   return res.data;
@@ -97,6 +104,16 @@ export async function adminPush(token, playerId, merchantName, amount) {
 
 export async function fetchProfile(playerId) {
   const res = await api.get(`/api/player/${playerId}/profile`);
+  return res.data;
+}
+
+export async function fetchRewards(playerId) {
+  const res = await api.get(`/api/rewards/${playerId}`);
+  return res.data;
+}
+
+export async function useReward(rewardId) {
+  const res = await api.post(`/api/rewards/${rewardId}/use`);
   return res.data;
 }
 

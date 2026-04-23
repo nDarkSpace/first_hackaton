@@ -55,6 +55,7 @@ class PendingTransaction(Base):
     __tablename__ = "pending_transactions"
     id = Column(Integer, primary_key=True, autoincrement=True)
     player_id = Column(String, nullable=False, index=True)
+    partner_id = Column(Integer, nullable=True, index=True)  # FK к Partner.id (опц. для совместимости)
     partner_name = Column(String, nullable=False)
     amount = Column(Float, nullable=False, default=0.0)
     mcc_code = Column(String, nullable=False, default="")
@@ -81,6 +82,23 @@ class Achievement(Base):
     __table_args__ = (
         UniqueConstraint("player_id", "code", name="uq_player_code"),
     )
+
+
+class Reward(Base):
+    """Промокод / бонус, выданный за ачивку. Имеет срок годности и используется один раз."""
+    __tablename__ = "rewards"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    player_id = Column(String, nullable=False, index=True)
+    source_code = Column(String, nullable=False)  # код ачивки, за которую выдано
+    code = Column(String, nullable=False, index=True)  # промо-код для показа пользователю
+    title = Column(String, nullable=False)
+    description = Column(String, nullable=False, default="")
+    reward_type = Column(String, nullable=False, default="bonus")  # cashback_boost | discount | bonus_points | free_unlock
+    value = Column(Float, nullable=False, default=0.0)  # % или сумма — зависит от reward_type
+    scope = Column(String, nullable=True)  # категория для cashback_boost (restaurant/grocery/...)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
 
 
 def init_db():

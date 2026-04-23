@@ -7,6 +7,8 @@ import {
   fetchPartners,
   fetchPending,
   fetchProfile,
+  fetchRewards,
+  useReward,
 } from "../api/client";
 
 export function useGameState(playerId) {
@@ -15,24 +17,36 @@ export function useGameState(playerId) {
   const [pending, setPending] = useState([]);
   const [stats, setStats] = useState({ total: 0, unlocked: 0, achievements_count: 0 });
   const [achievements, setAchievements] = useState([]);
+  const [rewards, setRewards] = useState({ active: [], used: [], expired: [] });
   const [notification, setNotification] = useState({ show: false });
 
   const refresh = useCallback(async () => {
     if (!playerId) return;
     try {
-      const [hx, pr, pe] = await Promise.all([
+      const [hx, pr, pe, rw] = await Promise.all([
         fetchHexes(playerId),
         fetchProfile(playerId),
         fetchPending(playerId),
+        fetchRewards(playerId),
       ]);
       setHexes(hx.hexes || []);
       setStats(hx.stats || { total: 0, unlocked: 0, achievements_count: 0 });
       setAchievements(pr.achievements || []);
       setPending(pe.pending || []);
+      setRewards(rw || { active: [], used: [], expired: [] });
     } catch (e) {
       console.error("refresh failed", e);
     }
   }, [playerId]);
+
+  const redeem = useCallback(async (rewardId) => {
+    try {
+      await useReward(rewardId);
+      await refresh();
+    } catch (e) {
+      console.error("redeem failed", e);
+    }
+  }, [refresh]);
 
   useEffect(() => {
     refresh();
@@ -67,10 +81,10 @@ export function useGameState(playerId) {
   }, [playerId]);
 
   const submitDeferred = useCallback(
-    async (merchantName, amount, mcc) => {
+    async (merchantName, amount, mcc, partnerId) => {
       if (!playerId) return;
       try {
-        await createPending(playerId, merchantName, amount, mcc);
+        await createPending(playerId, merchantName, amount, mcc, partnerId);
         setNotification({
           show: true,
           bank: { merchant: merchantName, amount, mcc },
@@ -116,5 +130,5 @@ export function useGameState(playerId) {
     [refresh]
   );
 
-  return { hexes, partners, pending, stats, achievements, notification, submitDeferred, consume };
+  return { hexes, partners, pending, stats, achievements, rewards, notification, submitDeferred, consume, redeem };
 }

@@ -32,32 +32,36 @@ const btnStyle = {
 export default function DemoPanel({
   stats,
   achievements,
+  rewards,
+  onRedeem,
   submitDeferred,
   partners,
   pendingCount,
   player,
   onLogout,
-  selectedPartnerName,
+  selectedPartner,
 }) {
-  const [partnerName, setPartnerName] = useState("");
+  const [partnerId, setPartnerId] = useState("");
   const [amount, setAmount] = useState("25");
+  const [rewardsOpen, setRewardsOpen] = useState(false);
   const amountRef = useRef(null);
+  const activeRewards = rewards?.active ?? [];
 
   useEffect(() => {
-    if (selectedPartnerName && selectedPartnerName !== partnerName) {
-      setPartnerName(selectedPartnerName);
+    if (selectedPartner?.id != null && String(selectedPartner.id) !== partnerId) {
+      setPartnerId(String(selectedPartner.id));
       setTimeout(() => amountRef.current?.focus(), 50);
     }
-  }, [selectedPartnerName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedPartner]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const partner = partners?.find((p) => p.name === partnerName);
+  const partner = partners?.find((p) => String(p.id) === partnerId);
 
   function handlePay(e) {
     e.preventDefault();
     if (!partner) return;
     const amt = Number(amount);
     if (!amt || amt <= 0) return;
-    submitDeferred(partner.name, amt, partner.mcc_code);
+    submitDeferred(partner.name, amt, partner.mcc_code, partner.id);
   }
 
   return (
@@ -105,6 +109,25 @@ export default function DemoPanel({
               🔔 {pendingCount}
             </span>
           )}
+          {activeRewards.length > 0 && (
+            <button
+              onClick={() => setRewardsOpen((v) => !v)}
+              style={{
+                background: "#7B61FF",
+                color: "#fff",
+                border: "none",
+                padding: "3px 10px",
+                borderRadius: 12,
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontFamily: "inherit",
+              }}
+              title="Активные промокоды"
+            >
+              🎁 {activeRewards.length}
+            </button>
+          )}
           <span>{stats?.unlocked ?? 0}/{stats?.total ?? 0}</span>
           {onLogout && (
             <button
@@ -151,14 +174,14 @@ export default function DemoPanel({
         style={{ display: "flex", gap: 8, flexDirection: "column" }}
       >
         <select
-          value={partnerName}
-          onChange={(e) => setPartnerName(e.target.value)}
+          value={partnerId}
+          onChange={(e) => setPartnerId(e.target.value)}
           style={inputStyle}
           required
         >
           <option value="">— Выбери партнёра —</option>
           {partners?.map((p) => (
-            <option key={p.name} value={p.name}>
+            <option key={p.id} value={String(p.id)}>
               {p.name} · {p.cashback_percent}%
             </option>
           ))}
@@ -184,6 +207,80 @@ export default function DemoPanel({
       <div style={{ fontSize: 11, color: "#666", marginTop: 8, textAlign: "center" }}>
         После оплаты банк пришлёт уведомление — открой территорию на карте
       </div>
+
+      {rewardsOpen && (
+        <div
+          style={{
+            marginTop: 10,
+            background: "#111125",
+            border: "1px solid #7B61FF",
+            borderRadius: 10,
+            padding: 10,
+            maxHeight: 220,
+            overflowY: "auto",
+          }}
+        >
+          <div style={{ fontSize: 12, color: "#aaa", marginBottom: 6 }}>
+            Активные промокоды
+          </div>
+          {activeRewards.length === 0 && (
+            <div style={{ fontSize: 12, color: "#666" }}>Пусто</div>
+          )}
+          {activeRewards.map((r) => {
+            const expDays = Math.max(
+              0,
+              Math.ceil((new Date(r.expires_at) - new Date()) / 86400000)
+            );
+            return (
+              <div
+                key={r.id}
+                style={{
+                  borderBottom: "1px solid #1f1f33",
+                  padding: "8px 0",
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600, color: "#fff", fontSize: 13 }}>
+                    {r.title}
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: "monospace",
+                      fontSize: 12,
+                      color: "#7B61FF",
+                      letterSpacing: 1,
+                    }}
+                  >
+                    {r.code}
+                  </div>
+                  <div style={{ fontSize: 11, color: "#666" }}>
+                    осталось {expDays} дн.
+                  </div>
+                </div>
+                <button
+                  onClick={() => onRedeem && onRedeem(r.id)}
+                  style={{
+                    background: "transparent",
+                    color: "#7B61FF",
+                    border: "1px solid #7B61FF",
+                    borderRadius: 6,
+                    padding: "4px 10px",
+                    fontSize: 12,
+                    cursor: "pointer",
+                    fontFamily: "inherit",
+                  }}
+                >
+                  использовать
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

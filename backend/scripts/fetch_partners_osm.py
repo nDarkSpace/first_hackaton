@@ -7,6 +7,7 @@
 import json
 import time
 from pathlib import Path
+from urllib.parse import urlencode
 from urllib.request import urlopen, Request
 
 # Минск — bbox
@@ -27,12 +28,16 @@ BRAND_MAP = {
     "Гиппо":         ("grocery", "5411", 2.0),
     "ProStore":      ("grocery", "5411", 2.0),
     "Bigzz":         ("grocery", "5411", 3.0),
+    "Mart Inn":      ("grocery", "5411", 2.5),
     "e-doставка":    ("grocery", "5411", 3.0),
+    "Hit!":          ("grocery", "5411", 2.0),
+    "Доброном":      ("grocery", "5411", 2.0),
     # restaurants / cafes
     "McDonald's":    ("restaurant", "5812", 2.0),
     "KFC":           ("restaurant", "5812", 2.5),
     "Burger King":   ("restaurant", "5812", 2.5),
     "Domino's Pizza": ("restaurant", "5812", 3.0),
+    "Папа Джонс":    ("restaurant", "5812", 3.0),
     "Васильки":      ("restaurant", "5812", 4.0),
     "Лидо":          ("restaurant", "5812", 3.5),
     "Планета Суши":  ("restaurant", "5812", 4.0),
@@ -48,6 +53,7 @@ BRAND_MAP = {
     "Белоруснефть":  ("fuel", "5541", 5.0),
     "Лукойл":        ("fuel", "5541", 4.5),
     "BP":            ("fuel", "5541", 5.5),
+    "Татнефть":      ("fuel", "5541", 4.0),
     # other
     "ZигZаг":        ("other", "5999", 4.0),
     "Электросила":   ("other", "5999", 3.5),
@@ -61,6 +67,11 @@ BRAND_MAP = {
     "Zara":          ("other", "5999", 4.0),
     "Reserved":      ("other", "5999", 4.0),
     "Bershka":       ("other", "5999", 4.0),
+    "Беларусбанк":   ("other", "6011", 0.0),
+    "Белагропромбанк": ("other", "6011", 0.0),
+    "МТБанк":        ("other", "6011", 0.0),
+    "Белпочта":      ("other", "9402", 1.0),
+    "Евросеть":      ("other", "5999", 3.0),
 }
 
 OVERPASS_URL = "https://overpass-api.de/api/interpreter"
@@ -81,7 +92,17 @@ out center tags;
 
 def fetch(brand: str):
     q = build_query(brand)
-    req = Request(OVERPASS_URL, data=q.encode("utf-8"), method="POST")
+    body = urlencode({"data": q}).encode("utf-8")
+    req = Request(
+        OVERPASS_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+            "User-Agent": "fog-of-war-mtbank/1.0 (hackathon)",
+        },
+    )
     with urlopen(req, timeout=60) as r:
         data = json.load(r)
     out = []

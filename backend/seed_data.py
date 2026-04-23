@@ -7,6 +7,10 @@ from models import Partner
 
 DEMO_PLAYER = "demo_player_001"
 
+# Грубый bbox Минска (south, west, north, east). Гексы вне bbox отбрасываются:
+# сетка с большим радиусом тянется в пригород, а игра — про сам Минск.
+MINSK_BBOX = (53.83, 27.40, 53.98, 27.72)
+
 
 def hex_grid_minsk():
     """Плотная pointy-top гекс-сетка вокруг центра Минска.
@@ -16,13 +20,13 @@ def hex_grid_minsk():
     Для pointy-top соседние центры: dx = R*√3, dy = R*1.5, сдвиг рядов R*√3/2.
     """
     center_lat, center_lng = 53.9045, 27.5615
-    R = 0.0027
+    R = 0.009  # ~1 км — крупнее чтобы накрыть весь Минск разумным числом гексов
     lat_scale = 1.0 / cos(radians(center_lat))  # расширение долготы
 
     hexes = []
     idx = 1
 
-    def make_hex(cx_lat, cy_lng, ring):
+    def make_hex(cx_lat, cy_lng, ring, q=None, r=None):
         nonlocal idx
         vertices = []
         # pointy-top: углы 30°, 90°, 150°, 210°, 270°, 330°
@@ -34,6 +38,8 @@ def hex_grid_minsk():
         h = {
             "hex_id": f"hex_{idx:03d}",
             "ring": ring,
+            "q": q,
+            "r": r,
             "center_lat": cx_lat,
             "center_lng": cy_lng,
             "vertices": vertices,
@@ -42,8 +48,9 @@ def hex_grid_minsk():
         return h
 
     # axial-координаты, radius колец в гексах
-    grid_radius = 8
+    grid_radius = 10  # 10 колец * 1 км ≈ 10 км — накрывает весь Минск
     sqrt3 = sqrt(3)
+    s, w, n, e = MINSK_BBOX
     for q in range(-grid_radius, grid_radius + 1):
         r1 = max(-grid_radius, -q - grid_radius)
         r2 = min(grid_radius, -q + grid_radius)
@@ -53,8 +60,10 @@ def hex_grid_minsk():
             d_lng = R * sqrt3 * (q + r / 2) * lat_scale
             cx = center_lat + d_lat
             cy = center_lng + d_lng
+            if not (s <= cx <= n and w <= cy <= e):
+                continue  # гекс за пределами Минска — пропускаем
             ring = max(abs(q), abs(r), abs(-q - r))
-            hexes.append(make_hex(cx, cy, ring))
+            hexes.append(make_hex(cx, cy, ring, q=q, r=r))
 
     return hexes
 
@@ -170,45 +179,99 @@ def _load_osm_partners():
         return None
 
 
+MAX_PARTNERS_PER_HEX = 3
+
+
+def _thin_per_hex(items, max_per_hex=MAX_PARTNERS_PER_HEX):
+    """Оставляет в каждом гексе не более max_per_hex партнёров.
+    Внутри гекса приоритет — разнообразие категорий, затем порядок поступления.
+    items: list of dicts с ключами hex_id, category."""
+    by_hex = {}
+    for it in items:
+        by_hex.setdefault(it["hex_id"], []).append(it)
+    out = []
+    for hid, group in by_hex.items():
+        if len(group) <= max_per_hex:
+            out.extend(group)
+            continue
+        chosen = []
+        seen_cat = set()
+        # сначала по одной из каждой новой категории
+        for it in group:
+            if len(chosen) >= max_per_hex:
+                break
+            if it["category"] not in seen_cat:
+                chosen.append(it)
+                seen_cat.add(it["category"])
+        # добиваем оставшимися в исходном порядке
+        if len(chosen) < max_per_hex:
+            for it in group:
+                if it in chosen:
+                    continue
+                chosen.append(it)
+                if len(chosen) >= max_per_hex:
+                    break
+        out.extend(chosen)
+    return out
+
+
 def seed_partners(session: Session):
     """Создаёт партнёров. Если есть partners_osm.json — берём его (реальные точки
     из OpenStreetMap). Иначе — встроенный PARTNERS_DATA.
-    hex_id вычисляется из lat/lng."""
+    hex_id вычисляется из lat/lng. На каждый гекс — не более MAX_PARTNERS_PER_HEX точек."""
     osm = _load_osm_partners()
     if osm is not None:
+        prepared = []
         for item in osm:
             name = item.get("name")
             lat = item.get("lat")
             lng = item.get("lng")
             if not name or lat is None or lng is None:
                 continue
+            prepared.append({
+                "name": name,
+                "category": item.get("category", "other"),
+                "mcc_code": item.get("mcc_code", "5999"),
+                "lat": lat,
+                "lng": lng,
+                "cashback_percent": float(item.get("cashback_percent", 0.0)),
+                "hex_id": hex_id_for_point(lat, lng),
+            })
+        thinned = _thin_per_hex(prepared)
+        for item in thinned:
             exists = session.query(Partner).filter(
-                Partner.name == name,
-                Partner.lat == lat,
-                Partner.lng == lng,
+                Partner.name == item["name"],
+                Partner.lat == item["lat"],
+                Partner.lng == item["lng"],
             ).first()
             if exists:
                 continue
-            hid = hex_id_for_point(lat, lng)
             session.add(Partner(
-                hex_id=hid,
-                name=name,
-                category=item.get("category", "other"),
-                mcc_code=item.get("mcc_code", "5999"),
-                lat=lat,
-                lng=lng,
-                cashback_percent=float(item.get("cashback_percent", 0.0)),
+                hex_id=item["hex_id"],
+                name=item["name"],
+                category=item["category"],
+                mcc_code=item["mcc_code"],
+                lat=item["lat"],
+                lng=item["lng"],
+                cashback_percent=item["cashback_percent"],
             ))
         session.commit()
         return
 
+    prepared = []
     for name, cat, mcc, lat, lng, cb in PARTNERS_DATA:
-        exists = session.query(Partner).filter_by(name=name).first()
+        prepared.append({
+            "name": name, "category": cat, "mcc_code": mcc,
+            "lat": lat, "lng": lng, "cashback_percent": cb,
+            "hex_id": hex_id_for_point(lat, lng),
+        })
+    for item in _thin_per_hex(prepared):
+        exists = session.query(Partner).filter_by(name=item["name"]).first()
         if exists:
             continue
-        hid = hex_id_for_point(lat, lng)
         session.add(Partner(
-            hex_id=hid, name=name, category=cat, mcc_code=mcc,
-            lat=lat, lng=lng, cashback_percent=cb,
+            hex_id=item["hex_id"], name=item["name"], category=item["category"],
+            mcc_code=item["mcc_code"], lat=item["lat"], lng=item["lng"],
+            cashback_percent=item["cashback_percent"],
         ))
     session.commit()

@@ -36,6 +36,7 @@ function pointsToGeoJSON(items, keyExtras = {}) {
     features: (items || []).map((p) => ({
       type: "Feature",
       properties: {
+        partner_id: p.id ?? p.partner_id ?? null,
         name: p.name ?? p.partner_name,
         category: p.category,
         cashback: p.cashback_percent,
@@ -90,6 +91,7 @@ export default function GameMap({ hexes, partners, pending, onConsume, onSelectP
           });
         } else if (f.layer.id === "partners-circle") {
           const name = f.properties.name;
+          const partnerId = f.properties.partner_id;
           setPopup({
             lngLat: e.lngLat,
             name,
@@ -97,7 +99,7 @@ export default function GameMap({ hexes, partners, pending, onConsume, onSelectP
             cashback: f.properties.cashback,
             pendingId: null,
           });
-          if (onSelectPartner) onSelectPartner(name);
+          if (onSelectPartner) onSelectPartner({ id: partnerId, name });
         }
       }}
     >

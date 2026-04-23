@@ -59,8 +59,13 @@ export default function NotificationToast({ notification }) {
             {achievements && achievements.length > 0 && (
               <div style={{ marginTop: hexUnlocked ? 8 : 0 }}>
                 {achievements.map((a) => (
-                  <div key={a.code} style={{ fontSize: 13, color: "#ffd166" }}>
-                    ★ Ачивка: {a.name} — {a.reward_label}
+                  <div key={a.code} style={{ fontSize: 13, color: "#ffd166", marginBottom: 4 }}>
+                    <div>★ {a.name} — {a.reward_label}</div>
+                    {a.reward?.code && (
+                      <div style={{ fontFamily: "monospace", fontSize: 12, color: "#7B61FF", letterSpacing: 1 }}>
+                        промокод: {a.reward.code}
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

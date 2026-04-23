@@ -32,8 +32,8 @@ export default function App() {
   }, []);
 
   const {
-    hexes, partners, pending, stats, achievements, notification,
-    submitDeferred, consume,
+    hexes, partners, pending, stats, achievements, rewards, notification,
+    submitDeferred, consume, redeem,
   } = useGameState(player?.player_id);
 
   function handleLogout() {
@@ -73,19 +73,21 @@ export default function App() {
           partners={partners}
           pending={pending}
           onConsume={consume}
-          onSelectPartner={(name) => setSelectedPartner({ name, at: Date.now() })}
+          onSelectPartner={(p) => setSelectedPartner({ id: p.id, name: p.name, at: Date.now() })}
         />
         <NotificationToast notification={notification} />
       </div>
       <DemoPanel
         stats={stats}
         achievements={achievements}
+        rewards={rewards}
+        onRedeem={redeem}
         partners={partners}
         pendingCount={pending?.length ?? 0}
         submitDeferred={submitDeferred}
         player={player}
         onLogout={handleLogout}
-        selectedPartnerName={selectedPartner?.name}
+        selectedPartner={selectedPartner}
       />
     </div>
   );

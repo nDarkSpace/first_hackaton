@@ -57,9 +57,9 @@ export default function AdminPanel() {
     if (token) loadAll(token);
   }, []);
 
-  async function push(playerId, merchantName, amount) {
+  async function push(playerId, merchantName, amount, partnerId) {
     try {
-      const res = await adminPush(token, playerId, merchantName, amount);
+      const res = await adminPush(token, playerId, merchantName, amount, partnerId);
       setLog((prev) => [
         `→ ${merchantName} (${amount} BYN) для ${playerId.slice(0, 8)} · ${
           res.created ? "создано" : res.reason
@@ -148,8 +148,9 @@ export default function AdminPanel() {
 }
 
 function UserRow({ user, partners, onPush }) {
-  const [merchant, setMerchant] = useState("");
+  const [merchantId, setMerchantId] = useState("");
   const [amount, setAmount] = useState("25");
+  const merchant = partners.find((p) => String(p.id) === merchantId);
 
   return (
     <div
@@ -171,13 +172,13 @@ function UserRow({ user, partners, onPush }) {
       </div>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <select
-          value={merchant}
-          onChange={(e) => setMerchant(e.target.value)}
+          value={merchantId}
+          onChange={(e) => setMerchantId(e.target.value)}
           style={{ ...input, flex: "1 1 160px", minWidth: 0 }}
         >
           <option value="">— партнёр —</option>
           {partners.map((p) => (
-            <option key={p.name} value={p.name}>
+            <option key={p.id} value={String(p.id)}>
               {p.name}
             </option>
           ))}
@@ -190,7 +191,7 @@ function UserRow({ user, partners, onPush }) {
         />
         <button
           style={{ ...btn, background: "#FFD60A" }}
-          onClick={() => merchant && onPush(user.player_id, merchant, amount)}
+          onClick={() => merchant && onPush(user.player_id, merchant.name, amount, merchant.id)}
         >
           🔔 Push
         </button>
